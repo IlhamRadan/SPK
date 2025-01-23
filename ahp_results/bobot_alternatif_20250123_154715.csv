@@ -1,0 +1,13 @@
+Kriteria,Alternatif,Bobot Alternatif
+Urgensi surat,Cluster 1,0.25
+Urgensi surat,Cluster 2,0.25
+Urgensi surat,Cluster 3,0.25
+Urgensi surat,Cluster 4,0.25
+Jenis Kegiatan,Cluster 1,0.25
+Jenis Kegiatan,Cluster 2,0.25
+Jenis Kegiatan,Cluster 3,0.25
+Jenis Kegiatan,Cluster 4,0.25
+Jenis Program,Cluster 1,0.25
+Jenis Program,Cluster 2,0.25
+Jenis Program,Cluster 3,0.25
+Jenis Program,Cluster 4,0.25
