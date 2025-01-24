@@ -5,6 +5,9 @@ from label_utils import label_encode_data, save_encoders
 from preprocessing_utils import preprocess_text
 import nltk
 from nltk.corpus import stopwords
+from sklearn.cluster import KMeans
+import numpy as np
+import matplotlib.pyplot as plt
 import re
 import os
 
@@ -27,6 +30,16 @@ else:
     nltk.download('stopwords', quiet=True)
     from nltk.corpus import stopwords
     stop_words = set(stopwords.words('indonesian'))
+
+def elbow_method(data):
+    # Elbow Method tanpa normalisasi
+    sse = []
+    for i in range(1, 11):  # Uji jumlah cluster dari 1 hingga 10
+        kmeans = KMeans(n_clusters=i, init='k-means++', random_state=42)
+        kmeans.fit(data)
+        sse.append(kmeans.inertia_)
+    
+    return sse
 
 # Fungsi utama untuk menu "Unggah Dataset"
 def upload_menu():
@@ -119,6 +132,7 @@ def upload_menu():
                     )
                     st.session_state['train_df'] = train_df
                     st.session_state['test_df'] = test_df
+                                      
                     st.success("Data berhasil di-split.")
                     st.write(f"Jumlah data latih: {len(train_df)}")
                     st.write(f"Jumlah data uji: {len(test_df)}")
@@ -126,10 +140,46 @@ def upload_menu():
                     st.dataframe(train_df.set_index(train_df.columns[0]))
                     st.write("Data Uji:")
                     st.dataframe(test_df.set_index(test_df.columns[0]))
+
+                    # Visualisasi Elbow Method pada data latih
+                    st.subheader("Analisis Elbow Method")
+                    sse = elbow_method(train_df)
+                    
+                    # Plot Elbow Method
+                    plt.figure(figsize=(10, 6))
+                    plt.plot(range(1, 11), sse, marker='o', linestyle='--', color='b')
+                    plt.title('Elbow Method untuk Menentukan Jumlah Cluster Optimal')
+                    plt.xlabel('Jumlah Cluster (k)')
+                    plt.ylabel('Sum of Squared Errors (SSE)')
+                    plt.grid(True, linestyle='--', alpha=0.7)
+                    
+                    # Tambahkan anotasi nilai SSE
+                    for i, txt in enumerate(sse):
+                        plt.annotate(f'{txt:.2f}', (i+1, txt), 
+                                    textcoords="offset points", 
+                                    xytext=(0,10), 
+                                    ha='center')
+                    
+                    # Tampilkan plot di Streamlit
+                    st.pyplot(plt)
+                    
+                    # Tambahkan tabel SSE
+                    """sse_df = pd.DataFrame({
+                        'Jumlah Cluster': range(1, 11),
+                        'SSE': sse
+                    })
+                    st.dataframe(sse_df)
+                    
+                    # Cari titik siku (elbow point)
+                    diff_sse = np.diff(sse)
+                    elbow_point = np.argmin(diff_sse) + 2  # +2 karena indeks dimulai dari 1
+                    st.info(f"Titik siku (elbow point) berada di cluster ke-{elbow_point}")"""
                 except Exception as e:
                     st.error(f"Terjadi kesalahan: {e}")
             else:
                 st.error("Silakan lakukan Label Encoding terlebih dahulu sebelum Split Data.")
+
+# Eksekusi menu upload
 
 # Eksekusi menu upload
 if __name__ == "__main__":
