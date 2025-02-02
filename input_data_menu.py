@@ -2,154 +2,158 @@ import streamlit as st
 import pandas as pd
 import joblib
 from clustering_utils import load_model, normalize_data, load_encoders, label_decode_data
+from label_utils import save_encoders
 import os
+import numpy as np
+
+# Fungsi untuk memuat entri baru dari file CSV
+def load_new_entries(file_path):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
+    return pd.DataFrame()
+
+# Fungsi untuk menyimpan entri baru ke file CSV
+def save_new_entry(file_path, new_entry):
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+    else:
+        df = pd.DataFrame(columns=new_entry.keys())
+    
+    new_entry_df = pd.DataFrame([new_entry])
+    df = pd.concat([df, new_entry_df], ignore_index=True)
+    df.to_csv(file_path, index=False)
+
+# Fungsi untuk memuat hasil prediksi sebelumnya
+def load_previous_predictions(file_path):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
+    return pd.DataFrame()
 
 # Halaman Input Data Baru
 def input_data():
-    # Muat model dan scaler dari file
     try:
-        kmeans_model = load_model('models/kmeans_model.pkl')  # Muat model K-Means
-        scaler = joblib.load('models/scaler.pkl')             # Muat scaler
-        encoders = load_encoders()                    # Muat encoder
+        kmeans_model = load_model('models/kmeans_model.pkl')
+        scaler = joblib.load('models/scaler.pkl')
+        encoders = load_encoders()
+        data_columns = load_model('models/data_columns.pkl')
     except Exception as e:
         st.error(f"Gagal memuat model atau file pendukung. Silahkan lakukan clustering & model training terlebih dahulu!")
         return
 
-    # Dapatkan kolom yang akan digunakan untuk input
-    try:
-        data_columns = load_model('models/data_columns.pkl')  # Muat daftar kolom input
-    except Exception as e:
-        st.error(f"Gagal memuat daftar kolom input: {e}")
-        return
-
-    # Inisialisasi session state untuk form input dan hasil prediksi
     if 'input_data' not in st.session_state:
         st.session_state['input_data'] = {col: f"Pilih {col}..." for col in data_columns}
-    if 'predicted_data' not in st.session_state:
-        st.session_state['predicted_data'] = pd.DataFrame(columns=data_columns + ['Cluster'])
+    if 'show_new_entry_form' not in st.session_state:
+        st.session_state['show_new_entry_form'] = False
 
-    # Input data baru menggunakan selection box
-    st.write("Pilih data surat untuk diprediksi clusternya:")
-    
-    # Variabel untuk melacak kelengkapan input
+    new_entries_file = 'new_entries.csv'
+    prediction_file = 'clustering_results/hasil_prediksi_cluster.csv'
+    new_entries_df = load_new_entries(new_entries_file)
+    previous_predictions = load_previous_predictions(prediction_file)
+
     inputs_complete = True
-    
-    for col in data_columns:
-        # Dapatkan unique values dari encoder
-        unique_values = list(encoders[col].classes_)
-        
-        # Tambahkan placeholder
-        placeholder = f"Pilih {col}..."
-        full_options = [placeholder] + unique_values
 
-        # Tentukan index awal
+    st.write("Klik untuk menambah entri baru")    
+    if st.button("Tambah Entri Baru"):
+        st.session_state['show_new_entry_form'] = True
+
+    if st.session_state['show_new_entry_form']:
+        st.subheader("Tambah Entri Baru:")
+        new_entry = {}
+        for col in data_columns:
+            new_value = st.text_input(f"Masukkan {col}:")
+            if new_value:
+                new_entry[col] = new_value
+
+        if st.button("Simpan Entri Baru"):
+            if new_entry:
+                save_new_entry(new_entries_file, new_entry)
+                st.success("Entri baru berhasil disimpan!")
+                st.session_state['show_new_entry_form'] = False
+            else:
+                st.error("Harap masukkan nilai untuk entri baru.") 
+
+    st.write("Pilih data surat untuk diprediksi clusternya:")
+    for col in data_columns:
+        unique_values = list(encoders[col].classes_)
+        if col in new_entries_df.columns:
+            unique_values += new_entries_df[col].dropna().unique().tolist()
+        
+        placeholder = f"Pilih {col}..."
+        full_options = [placeholder] + list(set(unique_values))
+        
         current_index = 0
         if st.session_state['input_data'][col] in full_options:
             current_index = full_options.index(st.session_state['input_data'][col])
 
-        # Gunakan selectbox dengan placeholder
         selected_value = st.selectbox(
             f"Pilih {col}:",
             options=full_options,
             index=current_index
         )
 
-        # Perbarui session state dan periksa kelengkapan
         if selected_value == placeholder:
             inputs_complete = False
         
         st.session_state['input_data'][col] = selected_value
 
-    # Tombol Prediksi dengan validasi input
     if st.button("Prediksi Cluster"):
-        # Cek apakah semua input sudah terisi
         if not inputs_complete:
             st.error("Harap lengkapi semua input sebelum melakukan prediksi!")
             return
 
         try:
-            # Buat salinan input data tanpa placeholder
             clean_input_data = {
                 col: val for col, val in st.session_state['input_data'].items() 
                 if not val.startswith("Pilih ")
             }
 
-            # Convert input ke DataFrame
             input_df = pd.DataFrame([clean_input_data])
 
-            # Lakukan Label Encoding menggunakan encoder yang ada
             for col, encoder in encoders.items():
                 if col in input_df:
-                    # Encode nilai input
-                    input_df[col] = encoder.transform(input_df[col])
+                    try:    
+                        input_df[col] = encoder.transform(input_df[col])
+                    except ValueError:
+                        new_classes = list(encoder.classes_) + [input_df[col].values[0]]
+                        encoder.classes_ = np.array(new_classes)
+                        encoders[col] = encoder
+                        save_encoders(encoders)
+                        input_df[col] = encoder.transform(input_df[col])
 
-            # Normalisasi data
-            try:
-                normalized_input = scaler.transform(input_df)
-            except Exception as e:
-                st.error(f"Error saat normalisasi: {e}")
-                return
+            normalized_input = scaler.transform(input_df)
+            cluster_label = kmeans_model.predict(normalized_input)[0] + 1
 
-            # Prediksi cluster
-            try:
-                cluster_label = kmeans_model.predict(normalized_input)[0] + 1
-            except Exception as e:
-                st.error(f"Error saat prediksi: {e}")
-                return
-
-            # Tambahkan cluster ke DataFrame
             input_df['Cluster'] = cluster_label
-
-            # Decode data untuk ditampilkan
             decoded_df = label_decode_data(input_df, encoders)
-
-            # Tambahkan hasil ke session state
-            st.session_state['predicted_data'] = pd.concat(
-                [st.session_state['predicted_data'], decoded_df], ignore_index=True
+            previous_predictions = pd.concat(
+                [previous_predictions, decoded_df], ignore_index=True
             )
 
-            # Reset form input ke placeholder
             st.session_state['input_data'] = {col: f"Pilih {col}..." for col in data_columns}
-
-            # Tampilkan hasil prediksi
             st.success(f"Data baru termasuk ke dalam Cluster {cluster_label}.")
+
+            # Simpan hasil prediksi secara otomatis
+            os.makedirs("clustering_results", exist_ok=True)
+            previous_predictions.to_csv(prediction_file, index=False)
+            """st.success(f"Hasil prediksi berhasil disimpan ke {prediction_file}")"""
 
         except Exception as e:
             st.error(f"Terjadi kesalahan saat melakukan prediksi: {e}")
 
-    # Tampilkan data hasil prediksi
     st.subheader("Hasil Prediksi Cluster:")
-    st.warning("Jangan lupa untuk selalu mengunduh file hasil prediksi!")
-    predicted_data = st.session_state['predicted_data'].copy()
-    predicted_data.index = range(1, len(predicted_data) + 1)
+    """st.warning("Jangan lupa untuk selalu mengunduh file hasil prediksi!")"""
+    previous_predictions.index = range(1, len(previous_predictions) + 1)
+    st.dataframe(previous_predictions, use_container_width=True)
 
-    st.dataframe(predicted_data, use_container_width=True)
-
-    # Tambahkan tombol download
-    if not predicted_data.empty:
-        # Buat direktori untuk menyimpan hasil
-        output_dir = "clustering_results"
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Generate nama file unik dengan timestamp
-        current_time = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-        file_path = os.path.join(output_dir, f"hasil_prediksi_cluster_{current_time}.csv")
-
-        # Simpan DataFrame ke CSV
-        predicted_data.to_csv(file_path, index=False)
-
-        # Tambahkan tombol download
-        with open(file_path, "rb") as file:
+    if not previous_predictions.empty:
+        with open(prediction_file, "rb") as file:
             st.download_button(
                 label="📥 Download Hasil Prediksi",
                 data=file,
-                file_name=f"hasil_prediksi_cluster_{current_time}.csv",
+                file_name="hasil_prediksi_cluster.csv",
                 mime="text/csv",
                 key="download_prediksi_btn"
             )
-
-        # Tambahan: Informasi jumlah data dan cluster
-        st.write(f"Total data prediksi: {len(predicted_data)}")
-        cluster_counts = predicted_data['Cluster'].value_counts()
+        st.write(f"Total data prediksi: {len(previous_predictions)}")
         st.write("Distribusi Cluster:")
-        st.dataframe(cluster_counts)
+        st.dataframe(previous_predictions['Cluster'].value_counts())
